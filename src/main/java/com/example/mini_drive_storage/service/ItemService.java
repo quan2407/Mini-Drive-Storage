@@ -3,6 +3,7 @@ package com.example.mini_drive_storage.service;
 import com.example.mini_drive_storage.dto.CreateFolderRequest;
 import com.example.mini_drive_storage.dto.ItemResponseDto;
 import com.example.mini_drive_storage.entity.FilePermission;
+import com.example.mini_drive_storage.entity.FolderDownloadStatus;
 import com.example.mini_drive_storage.entity.Items;
 import com.example.mini_drive_storage.entity.Users;
 import com.example.mini_drive_storage.enums.ItemType;
@@ -18,6 +19,7 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -27,10 +29,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @Service
 @AllArgsConstructor
@@ -50,6 +52,7 @@ public class ItemService {
             throw new RuntimeException("Could not initialize storage", e);
         }
     }
+
     private static final String UPLOAD_ROOT = "storage";
 
     private void checkEditPermission(Items item, Users user) {
@@ -145,7 +148,7 @@ public class ItemService {
             createInitialPermissions(savedItem, parent, currentUser);
             itemResponseDtos.add(ItemResponseDto.from(savedItem));
         }
-return itemResponseDtos;
+        return itemResponseDtos;
     }
 
     public ItemResponseDto createFolder(CreateFolderRequest createFolderRequest) {
@@ -154,7 +157,7 @@ return itemResponseDtos;
         }
         Users currentUser = currentUserUtils.getCurrentUser();
         Items parent = null;
-        if(createFolderRequest.getParentId() != null){
+        if (createFolderRequest.getParentId() != null) {
             parent = itemRepo.findById(createFolderRequest.getParentId())
                     .orElseThrow(() -> new NotFoundException("Parent folder not found"));
         }
@@ -162,7 +165,10 @@ return itemResponseDtos;
             throw new InvalidRequestException("Parent is not folder");
         }
         // if this folder in a parent folder, check parent folder have permission edit to current user
-        checkEditPermission(parent, currentUser);
+        if (parent != null) {
+            checkEditPermission(parent, currentUser);
+        }
+
         Items folder = Items.builder()
                 .name(createFolderRequest.getName())
                 .parent(parent)
@@ -182,7 +188,7 @@ return itemResponseDtos;
         }
         Users currentUser = currentUserUtils.getCurrentUser();
         // if this file is shared to this user, user can download this file;
-        FilePermission permission = (FilePermission) filePermissionRepo.findByItemAndSharedToUser(item,currentUser)
+        FilePermission permission = (FilePermission) filePermissionRepo.findByItemAndSharedToUser(item, currentUser)
                 .orElseThrow(() -> new InvalidRequestException("No permission to download"));
 
         // check if this file is exist on this storage app
@@ -191,7 +197,7 @@ return itemResponseDtos;
             throw new NotFoundException("File not found");
         }
         // input stream use to read binary file: pdf,doc,zip,...
-        InputStreamResource  resource;
+        InputStreamResource resource;
         try {
             resource = new InputStreamResource(Files.newInputStream(path));
         } catch (IOException e) {
@@ -205,4 +211,96 @@ return itemResponseDtos;
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + item.getName() + "\"")
                 .body(resource);
     }
+
+    private final Map<UUID, FolderDownloadStatus> folderDownloadMap = new ConcurrentHashMap<>();
+    public FolderDownloadStatus getFolderDownloadStatus(UUID requestId) {
+        return folderDownloadMap.get(requestId);
+    }
+
+    public UUID triggerAsyncZip(UUID id) {
+        Items item = itemRepo.findById(id)
+                .orElseThrow(() -> new NotFoundException("Item not found"));
+        if (item.getType() != ItemType.FOLDER) {
+            throw new InvalidRequestException("Item is not folder");
+        }
+        Users currentUser = currentUserUtils.getCurrentUser();
+        // if this folder is shared to this user, user can download this folder;
+        FilePermission permission = (FilePermission) filePermissionRepo.findByItemAndSharedToUser(item, currentUser)
+                .orElseThrow(() -> new InvalidRequestException("No permission to download"));
+        UUID requestId = UUID.randomUUID();
+        folderDownloadMap.put(requestId, new FolderDownloadStatus("PENDING", null));
+
+        zipFolderAsync(item, requestId);
+
+        return requestId;
+    }
+
+    @Async
+    public void zipFolderAsync(Items item, UUID requestId) {
+        FolderDownloadStatus folderDownloadStatus = folderDownloadMap.get(requestId);
+        folderDownloadStatus.setStatus("PROCESSING");
+
+        try {
+            Path zipPath = Paths.get(UPLOAD_ROOT,requestId + ".zip").toAbsolutePath();
+            try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath))){
+                addFolderToZip(item, item.getName(), zos);
+            }
+            folderDownloadStatus.setZipPath(zipPath.toString().replace("\\", "/"));
+            folderDownloadStatus.setStatus("READY");
+        } catch (Exception e) {
+            folderDownloadStatus.setStatus("FAILED");
+            e.printStackTrace();
+        }
+    }
+
+    private void addFolderToZip(Items folder, String parentPath, ZipOutputStream zos) throws IOException{
+        List<Items> children = itemRepo.findByParent(folder);
+
+        for (Items child : children) {
+            if (child.getType() == ItemType.FILE) {
+                Path filePath = Paths.get(child.getPath());
+               try (InputStream is = Files.newInputStream(filePath)){
+                   ZipEntry zipEntry = new ZipEntry(parentPath + "/" + child.getName());
+                   zos.putNextEntry(zipEntry);
+
+                   byte[] bytes = new byte[1024];
+                   int length;
+                   while ((length = is.read(bytes)) != -1) {
+                       zos.write(bytes, 0, length);
+                   }
+                   zos.closeEntry();
+               }
+            } else if(child.getType() == ItemType.FOLDER){
+                addFolderToZip(child, parentPath + "/" + child.getName(), zos);
+            }
+        }
+    }
+
+    public ResponseEntity<?> downloadFolderZip(UUID requestId) throws IOException {
+        FolderDownloadStatus status = folderDownloadMap.get(requestId);
+
+        if (status == null) {
+            throw new NotFoundException("RequestId not found");
+        }
+
+        if (!"READY".equals(status.getStatus())) {
+            throw new InvalidRequestException("File is not ready to download");
+        }
+
+        Path path = Paths.get(status.getZipPath());
+
+        if (Files.notExists(path)) {
+            throw new NotFoundException("Zip file not found on disk");
+        }
+
+        InputStreamResource resource = new InputStreamResource(Files.newInputStream(path));
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + path.getFileName() + "\"")
+                .body(resource);
+    }
+
+
 }

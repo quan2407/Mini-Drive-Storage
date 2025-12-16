@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface ItemRepo extends JpaRepository<Items, UUID> {
     List<Items> findAllByParent_Id(UUID parentId);
     List<Items> findAllByParent(Items parent);
+
+    List<Items> findByParent(Items folder);
 }

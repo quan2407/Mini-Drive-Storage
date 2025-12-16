@@ -1,18 +1,21 @@
 package com.example.mini_drive_storage.controller;
 
 import com.example.mini_drive_storage.dto.CreateFolderRequest;
+import com.example.mini_drive_storage.dto.DownloadFolderResponse;
 import com.example.mini_drive_storage.dto.ItemResponseDto;
+import com.example.mini_drive_storage.entity.FolderDownloadStatus;
 import com.example.mini_drive_storage.entity.Items;
 import com.example.mini_drive_storage.service.ItemService;
 import lombok.AllArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.io.IOException;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -28,7 +31,7 @@ public class ItemController {
             @RequestParam("files") List<MultipartFile> files,
             @RequestParam(value = "parentId", required = false) UUID parentId
     ) {
-        List<ItemResponseDto> items =  itemService.uploadFiles(files,parentId);
+        List<ItemResponseDto> items = itemService.uploadFiles(files, parentId);
         return ResponseEntity.ok(items);
     }
 
@@ -36,9 +39,9 @@ public class ItemController {
             value = "/files",
             consumes = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<ItemResponseDto> uploadFiles(
-            @RequestBody CreateFolderRequest  createFolderRequest
-            ) {
+    public ResponseEntity<ItemResponseDto> uploadFolder(
+            @RequestBody CreateFolderRequest createFolderRequest
+    ) {
         return ResponseEntity.ok(itemService.createFolder(createFolderRequest));
     }
 
@@ -47,4 +50,36 @@ public class ItemController {
     public ResponseEntity<?> downloadFile(@PathVariable UUID id) {
         return itemService.downloadFile(id);
     }
+
+    @PostMapping("/{id}/download")
+    public ResponseEntity<DownloadFolderResponse> downloadFolder(@PathVariable UUID id) {
+        UUID requestId = itemService.triggerAsyncZip(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(DownloadFolderResponse.builder()
+                        .requestId(requestId.toString())
+                        .build());
+
+    }
+
+    @GetMapping("/downloads/{requestId}")
+    public ResponseEntity<?> pollingFolder(@PathVariable UUID requestId) {
+        FolderDownloadStatus status = itemService.getFolderDownloadStatus(requestId);
+        if (status == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("status", status);
+        if ("READY".equals(status.getStatus())) {
+            body.put("downloadUrl", "/api/v1/files/downloads/" + requestId + "/file");
+        }
+        return ResponseEntity.ok(body);
+    }
+
+    @GetMapping("/files/downloads/{requestId}/file")
+    public ResponseEntity<?> downloadFolderZip(@PathVariable UUID requestId) throws IOException {
+        System.out.println("downloadFolderZip");
+        return itemService.downloadFolderZip(requestId);
+    }
+
 }
