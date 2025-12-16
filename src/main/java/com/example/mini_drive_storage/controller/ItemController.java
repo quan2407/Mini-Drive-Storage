@@ -42,4 +42,9 @@ public class ItemController {
         return ResponseEntity.ok(itemService.createFolder(createFolderRequest));
     }
 
+    @GetMapping("/{id}/download")
+    // ? represent can accept any body type, because download api can return many type like Resource,JSON or no body
+    public ResponseEntity<?> downloadFile(@PathVariable UUID id) {
+        return itemService.downloadFile(id);
+    }
 }

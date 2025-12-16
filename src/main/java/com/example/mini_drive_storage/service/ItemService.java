@@ -14,10 +14,15 @@ import com.example.mini_drive_storage.repo.ItemRepo;
 import com.example.mini_drive_storage.utils.CurrentUserUtils;
 import jakarta.annotation.PostConstruct;
 import lombok.AllArgsConstructor;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -167,5 +172,37 @@ return itemResponseDtos;
         Items savedItem = itemRepo.save(folder);
         createInitialPermissions(savedItem, parent, currentUser);
         return ItemResponseDto.from(savedItem);
+    }
+
+    public ResponseEntity<?> downloadFile(UUID id) {
+        Items item = itemRepo.findById(id)
+                .orElseThrow(() -> new NotFoundException("Item not found"));
+        if (item.getType() != ItemType.FILE) {
+            throw new InvalidRequestException("Item is not file");
+        }
+        Users currentUser = currentUserUtils.getCurrentUser();
+        // if this file is shared to this user, user can download this file;
+        FilePermission permission = (FilePermission) filePermissionRepo.findByItemAndSharedToUser(item,currentUser)
+                .orElseThrow(() -> new InvalidRequestException("No permission to download"));
+
+        // check if this file is exist on this storage app
+        Path path = Paths.get(item.getPath());
+        if (Files.notExists(path)) {
+            throw new NotFoundException("File not found");
+        }
+        // input stream use to read binary file: pdf,doc,zip,...
+        InputStreamResource  resource;
+        try {
+            resource = new InputStreamResource(Files.newInputStream(path));
+        } catch (IOException e) {
+            throw new RuntimeException("Could not open file", e);
+        }
+        String contentType = item.getMimeType() != null ? item.getMimeType() : "application/octet-stream";
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                //Content-Disposition tell the user how to resolve data
+                //attachment mean force to download
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + item.getName() + "\"")
+                .body(resource);
     }
 }

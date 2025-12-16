@@ -28,7 +28,7 @@ public class Items {
     private String name;
     private Long size;
     private String path;
-    private String mimeType;
+    private String mimeType; // content type of files : pdf,png,...
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
