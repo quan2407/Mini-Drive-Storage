@@ -1,5 +1,6 @@
 package com.example.mini_drive_storage.service;
 
+import com.example.mini_drive_storage.dto.CreateFolderRequest;
 import com.example.mini_drive_storage.dto.ItemResponseDto;
 import com.example.mini_drive_storage.entity.Items;
 import com.example.mini_drive_storage.entity.Users;
@@ -20,6 +21,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -99,5 +101,28 @@ public class ItemService {
             itemResponseDtos.add(ItemResponseDto.from(savedItem));
         }
 return itemResponseDtos;
+    }
+
+    public ItemResponseDto createFolder(CreateFolderRequest createFolderRequest) {
+        if (createFolderRequest.getType() != ItemType.FOLDER) {
+            throw new InvalidRequestException("Type is not folder");
+        }
+        Users currentUser = currentUserUtils.getCurrentUser();
+        Items parent = null;
+        if(createFolderRequest.getParentId() != null){
+            parent = itemRepo.findById(createFolderRequest.getParentId())
+                    .orElseThrow(() -> new NotFoundException("Parent folder not found"));
+        }
+        if (parent.getType() != ItemType.FOLDER) {
+            throw new InvalidRequestException("Parent is not folder");
+        }
+        Items folder = Items.builder()
+                .name(createFolderRequest.getName())
+                .parent(parent)
+                .type(ItemType.FOLDER)
+                .owner(currentUser)
+                .build();
+        Items savedItem = itemRepo.save(folder);
+        return ItemResponseDto.from(savedItem);
     }
 }
