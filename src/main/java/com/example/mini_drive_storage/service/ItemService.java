@@ -2,11 +2,14 @@ package com.example.mini_drive_storage.service;
 
 import com.example.mini_drive_storage.dto.CreateFolderRequest;
 import com.example.mini_drive_storage.dto.ItemResponseDto;
+import com.example.mini_drive_storage.entity.FilePermission;
 import com.example.mini_drive_storage.entity.Items;
 import com.example.mini_drive_storage.entity.Users;
 import com.example.mini_drive_storage.enums.ItemType;
+import com.example.mini_drive_storage.enums.PermissionLevel;
 import com.example.mini_drive_storage.exception.InvalidRequestException;
 import com.example.mini_drive_storage.exception.NotFoundException;
+import com.example.mini_drive_storage.repo.FilePermissionRepo;
 import com.example.mini_drive_storage.repo.ItemRepo;
 import com.example.mini_drive_storage.utils.CurrentUserUtils;
 import jakarta.annotation.PostConstruct;
@@ -28,6 +31,7 @@ import java.util.UUID;
 @AllArgsConstructor
 public class ItemService {
     private ItemRepo itemRepo;
+    private FilePermissionRepo filePermissionRepo;
     private final CurrentUserUtils currentUserUtils;
 
     @PostConstruct // when bean service created successfully, this method will start once
@@ -42,6 +46,40 @@ public class ItemService {
         }
     }
     private static final String UPLOAD_ROOT = "storage";
+
+    private void checkEditPermission(Items item, Users user) {
+        FilePermission permission = (FilePermission) filePermissionRepo
+                .findByItemAndSharedToUser(item, user)
+                .orElseThrow(() ->
+                        new InvalidRequestException("You don't have permission to upload to this folder"));
+
+        if (permission.getPermissionLevel() != PermissionLevel.EDIT) {
+            throw new InvalidRequestException("You don't have edit permission");
+        }
+    }
+
+    private void createInitialPermissions(Items item, Items parent, Users owner) {
+        if (parent == null) {
+            FilePermission permission = FilePermission.builder()
+                    .item(item)
+                    .sharedToUser(owner)
+                    .permissionLevel(PermissionLevel.EDIT)
+                    .inherited(false)
+                    .build();
+            filePermissionRepo.save(permission);
+        } else {
+            List<FilePermission> parentPermissions = filePermissionRepo.findByItem(parent);
+            for (FilePermission p : parentPermissions) {
+                FilePermission childPerm = FilePermission.builder()
+                        .item(item)
+                        .sharedToUser(p.getSharedToUser())
+                        .permissionLevel(p.getPermissionLevel())
+                        .inherited(true)
+                        .build();
+                filePermissionRepo.save(childPerm);
+            }
+        }
+    }
 
     public List<ItemResponseDto> uploadFiles(List<MultipartFile> files, UUID parentId) {
         Users currentUser = currentUserUtils.getCurrentUser();
@@ -62,8 +100,9 @@ public class ItemService {
             }
 
         }
-        if (parent != null && !parent.getOwner().getId().equals(currentUser.getId())) {
-            throw new InvalidRequestException("You don't have permission to upload to this folder");
+        // if these file in a parent folder, check parent folder have permission edit to current user
+        if (parent != null) {
+            checkEditPermission(parent, currentUser);
         }
 
 // if these files don't belong to any parent folder => store to the root
@@ -98,6 +137,7 @@ public class ItemService {
                     .owner(currentUser)
                     .build();
             Items savedItem = itemRepo.save(items);
+            createInitialPermissions(savedItem, parent, currentUser);
             itemResponseDtos.add(ItemResponseDto.from(savedItem));
         }
 return itemResponseDtos;
@@ -113,9 +153,11 @@ return itemResponseDtos;
             parent = itemRepo.findById(createFolderRequest.getParentId())
                     .orElseThrow(() -> new NotFoundException("Parent folder not found"));
         }
-        if (parent.getType() != ItemType.FOLDER) {
+        if (parent != null && parent.getType() != ItemType.FOLDER) {
             throw new InvalidRequestException("Parent is not folder");
         }
+        // if this folder in a parent folder, check parent folder have permission edit to current user
+        checkEditPermission(parent, currentUser);
         Items folder = Items.builder()
                 .name(createFolderRequest.getName())
                 .parent(parent)
@@ -123,6 +165,7 @@ return itemResponseDtos;
                 .owner(currentUser)
                 .build();
         Items savedItem = itemRepo.save(folder);
+        createInitialPermissions(savedItem, parent, currentUser);
         return ItemResponseDto.from(savedItem);
     }
 }

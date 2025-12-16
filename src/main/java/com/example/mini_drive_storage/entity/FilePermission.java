@@ -14,6 +14,13 @@ import java.util.UUID;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@Table(
+        name = "file_permission",
+        uniqueConstraints = {
+                @UniqueConstraint(columnNames = {"item_id", "user_id"})
+        }
+)
+
 @EntityListeners(AuditingEntityListener.class)
 @Builder
 public class FilePermission {
@@ -22,11 +29,11 @@ public class FilePermission {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "item_id")
+    @JoinColumn(name = "item_id", nullable = false)
     private Items item;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
+    @JoinColumn(name = "user_id", nullable = false)
     private Users sharedToUser;
 
     @Enumerated(EnumType.STRING)
