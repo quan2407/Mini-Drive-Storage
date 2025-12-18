@@ -3,6 +3,7 @@ package com.example.mini_drive_storage.service;
 import com.example.mini_drive_storage.dto.CreateFolderRequest;
 import com.example.mini_drive_storage.dto.ItemResponseDto;
 import com.example.mini_drive_storage.dto.ShareFileRequest;
+import com.example.mini_drive_storage.dto.SharedItemResponseDto;
 import com.example.mini_drive_storage.entity.FilePermission;
 import com.example.mini_drive_storage.entity.FolderDownloadStatus;
 import com.example.mini_drive_storage.entity.Items;
@@ -378,4 +379,13 @@ private void shareFileRecursive(Items item, Users shareUser, PermissionLevel per
             }
         }
 }
+
+    public List<SharedItemResponseDto> getSharedItemForCurrentUser() {
+        Users currentUser = currentUserUtils.getCurrentUser();
+
+        return filePermissionRepo.findBySharedToUser(currentUser)
+                .stream()
+                .map(SharedItemResponseDto::from)
+                .toList();
+    }
 }

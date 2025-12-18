@@ -1,9 +1,6 @@
 package com.example.mini_drive_storage.controller;
 
-import com.example.mini_drive_storage.dto.CreateFolderRequest;
-import com.example.mini_drive_storage.dto.DownloadFolderResponse;
-import com.example.mini_drive_storage.dto.ItemResponseDto;
-import com.example.mini_drive_storage.dto.ShareFileRequest;
+import com.example.mini_drive_storage.dto.*;
 import com.example.mini_drive_storage.entity.FolderDownloadStatus;
 import com.example.mini_drive_storage.entity.Items;
 import com.example.mini_drive_storage.service.ItemService;
@@ -87,5 +84,10 @@ public class ItemController {
     @PostMapping("/files/{id}/share")
     public ResponseEntity<?> sharedFile(@PathVariable UUID id,@Valid @RequestBody ShareFileRequest  shareFileRequest) {
 return itemService.shareItem(id,shareFileRequest);
+    }
+
+    @GetMapping("/files/shared-with-me")
+    public ResponseEntity<List<SharedItemResponseDto>> sharedWithMe() {
+        return ResponseEntity.ok(itemService.getSharedItemForCurrentUser());
     }
 }
