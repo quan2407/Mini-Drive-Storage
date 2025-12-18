@@ -1,6 +1,7 @@
 package com.example.mini_drive_storage.entity;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Email;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 import org.springframework.data.annotation.CreatedDate;
@@ -24,6 +25,7 @@ public class Users {
     private UUID id;
     private String fullName;
     @Column(unique = true)
+    @Email
     private String email;
     private String password;
     @CreatedDate

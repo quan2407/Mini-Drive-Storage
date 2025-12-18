@@ -2,6 +2,7 @@ package com.example.mini_drive_storage.service;
 
 import com.example.mini_drive_storage.dto.CreateFolderRequest;
 import com.example.mini_drive_storage.dto.ItemResponseDto;
+import com.example.mini_drive_storage.dto.ShareFileRequest;
 import com.example.mini_drive_storage.entity.FilePermission;
 import com.example.mini_drive_storage.entity.FolderDownloadStatus;
 import com.example.mini_drive_storage.entity.Items;
@@ -12,8 +13,10 @@ import com.example.mini_drive_storage.exception.InvalidRequestException;
 import com.example.mini_drive_storage.exception.NotFoundException;
 import com.example.mini_drive_storage.repo.FilePermissionRepo;
 import com.example.mini_drive_storage.repo.ItemRepo;
+import com.example.mini_drive_storage.repo.UserRepo;
 import com.example.mini_drive_storage.utils.CurrentUserUtils;
 import jakarta.annotation.PostConstruct;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
@@ -29,6 +32,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.security.Permission;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
@@ -37,6 +41,8 @@ import java.util.zip.ZipOutputStream;
 @Service
 @AllArgsConstructor
 public class ItemService {
+    private final UserRepo userRepo;
+    private final EmailService emailService;
     private ItemRepo itemRepo;
     private FilePermissionRepo filePermissionRepo;
     private final CurrentUserUtils currentUserUtils;
@@ -213,6 +219,7 @@ public class ItemService {
     }
 
     private final Map<UUID, FolderDownloadStatus> folderDownloadMap = new ConcurrentHashMap<>();
+
     public FolderDownloadStatus getFolderDownloadStatus(UUID requestId) {
         return folderDownloadMap.get(requestId);
     }
@@ -241,8 +248,8 @@ public class ItemService {
         folderDownloadStatus.setStatus("PROCESSING");
 
         try {
-            Path zipPath = Paths.get(UPLOAD_ROOT,requestId + ".zip").toAbsolutePath();
-            try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath))){
+            Path zipPath = Paths.get(UPLOAD_ROOT, requestId + ".zip").toAbsolutePath();
+            try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath))) {
                 addFolderToZip(item, item.getName(), zos);
             }
             folderDownloadStatus.setZipPath(zipPath.toString().replace("\\", "/"));
@@ -253,24 +260,24 @@ public class ItemService {
         }
     }
 
-    private void addFolderToZip(Items folder, String parentPath, ZipOutputStream zos) throws IOException{
+    private void addFolderToZip(Items folder, String parentPath, ZipOutputStream zos) throws IOException {
         List<Items> children = itemRepo.findByParent(folder);
 
         for (Items child : children) {
             if (child.getType() == ItemType.FILE) {
                 Path filePath = Paths.get(child.getPath());
-               try (InputStream is = Files.newInputStream(filePath)){
-                   ZipEntry zipEntry = new ZipEntry(parentPath + "/" + child.getName());
-                   zos.putNextEntry(zipEntry);
+                try (InputStream is = Files.newInputStream(filePath)) {
+                    ZipEntry zipEntry = new ZipEntry(parentPath + "/" + child.getName());
+                    zos.putNextEntry(zipEntry);
 
-                   byte[] bytes = new byte[1024];
-                   int length;
-                   while ((length = is.read(bytes)) != -1) {
-                       zos.write(bytes, 0, length);
-                   }
-                   zos.closeEntry();
-               }
-            } else if(child.getType() == ItemType.FOLDER){
+                    byte[] bytes = new byte[1024];
+                    int length;
+                    while ((length = is.read(bytes)) != -1) {
+                        zos.write(bytes, 0, length);
+                    }
+                    zos.closeEntry();
+                }
+            } else if (child.getType() == ItemType.FOLDER) {
                 addFolderToZip(child, parentPath + "/" + child.getName(), zos);
             }
         }
@@ -303,4 +310,72 @@ public class ItemService {
     }
 
 
+    public ResponseEntity<?> shareItem(UUID id, @Valid ShareFileRequest shareFileRequest) {
+        Users currentUser = currentUserUtils.getCurrentUser();
+        Items item = itemRepo.findById(id)
+                .orElseThrow(() -> new NotFoundException("Item not found"));
+        FilePermission permission = filePermissionRepo
+                .findByItemAndSharedToUser(item, currentUser)
+                .orElseThrow(() ->
+                        new InvalidRequestException("You don't have permission to share this item"));
+
+        if (permission.getPermissionLevel() != PermissionLevel.EDIT) {
+            throw new InvalidRequestException("You don't have permission to share this item");
+        }
+        String emailToShare = shareFileRequest.getEmail();
+        Users shareUser = userRepo.findByEmail(emailToShare).orElseThrow(() -> new InvalidRequestException("Email not found"));
+        if (item.getType().equals(ItemType.FILE)) {
+            upsertPermission(item,shareUser,shareFileRequest.getPermission(),false);
+            emailService.sendShareNotification(
+                    shareUser.getEmail(),
+                    item.getName(),
+                    shareFileRequest.getPermission()
+            );
+
+        } else if (item.getType().equals(ItemType.FOLDER)) {
+            upsertPermission(item,shareUser,shareFileRequest.getPermission(),false);
+            emailService.sendShareNotification(
+                    shareUser.getEmail(),
+                    item.getName(),
+                    shareFileRequest.getPermission()
+            );
+            shareFileRecursive(item, shareUser, shareFileRequest.getPermission());
+        }
+        return ResponseEntity.ok("Item shared successfully");
+    }
+
+    private void upsertPermission(
+            Items item,
+            Users shareUser,
+            PermissionLevel permission,
+            boolean inherited
+    ) {
+        Optional<FilePermission> existing =
+                filePermissionRepo.findByItemAndSharedToUser(item, shareUser);
+
+        if (existing.isPresent()) {
+            FilePermission fp = existing.get();
+            fp.setPermissionLevel(permission);
+            fp.setInherited(inherited);
+            filePermissionRepo.save(fp);
+        } else {
+            FilePermission fp = FilePermission.builder()
+                    .item(item)
+                    .sharedToUser(shareUser)
+                    .permissionLevel(permission)
+                    .inherited(inherited)
+                    .build();
+            filePermissionRepo.save(fp);
+        }
+    }
+
+private void shareFileRecursive(Items item, Users shareUser, PermissionLevel permission) {
+        List<Items> children = itemRepo.findByParent(item);
+        for (Items child : children) {
+            upsertPermission(child,shareUser,permission,true);
+            if(child.getType().equals(ItemType.FOLDER)) {
+                shareFileRecursive(child,shareUser,permission);
+            }
+        }
+}
 }

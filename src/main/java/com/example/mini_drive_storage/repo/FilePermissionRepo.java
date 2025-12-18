@@ -12,5 +12,5 @@ import java.util.UUID;
 public interface FilePermissionRepo extends JpaRepository<FilePermission, UUID> {
     List<FilePermission> findByItem(Items parent);
 
-    Optional<Object> findByItemAndSharedToUser(Items item, Users user);
+    Optional<FilePermission> findByItemAndSharedToUser(Items item, Users user);
 }

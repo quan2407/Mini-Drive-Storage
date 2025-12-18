@@ -3,9 +3,11 @@ package com.example.mini_drive_storage.controller;
 import com.example.mini_drive_storage.dto.CreateFolderRequest;
 import com.example.mini_drive_storage.dto.DownloadFolderResponse;
 import com.example.mini_drive_storage.dto.ItemResponseDto;
+import com.example.mini_drive_storage.dto.ShareFileRequest;
 import com.example.mini_drive_storage.entity.FolderDownloadStatus;
 import com.example.mini_drive_storage.entity.Items;
 import com.example.mini_drive_storage.service.ItemService;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -82,4 +84,8 @@ public class ItemController {
         return itemService.downloadFolderZip(requestId);
     }
 
+    @PostMapping("/files/{id}/share")
+    public ResponseEntity<?> sharedFile(@PathVariable UUID id,@Valid @RequestBody ShareFileRequest  shareFileRequest) {
+return itemService.shareItem(id,shareFileRequest);
+    }
 }
