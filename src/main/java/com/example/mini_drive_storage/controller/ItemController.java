@@ -106,4 +106,9 @@ public class ItemController {
                 .build();
         return ResponseEntity.ok(itemService.search(fileSearchRequest));
     }
+
+    @GetMapping("/analytics/usage")
+    public ResponseEntity<UsageAnalyticsResponse> analyticsUsage() {
+return ResponseEntity.ok(itemService.getUsage());
+    }
 }

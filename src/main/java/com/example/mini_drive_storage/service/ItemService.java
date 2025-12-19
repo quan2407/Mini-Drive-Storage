@@ -411,4 +411,16 @@ private void shareFileRecursive(Items item, Users shareUser, PermissionLevel per
         );
         return items.stream().map(ItemResponseDto::from).toList();
     }
+
+    public UsageAnalyticsResponse getUsage() {
+        Users currentUser = currentUserUtils.getCurrentUser();
+        List<Object[]> results = itemRepo.getUsageStats(currentUser);
+        Object[] row = results.get(0);
+        long totalFiles = ((Number) row[0]).longValue();
+        long totalSize  = ((Number) row[1]).longValue();
+        return UsageAnalyticsResponse.builder()
+                .totalFiles(totalFiles)
+                .totalSize(totalSize)
+                .build();
+    }
 }

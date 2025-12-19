@@ -47,5 +47,12 @@ public interface ItemRepo extends JpaRepository<Items, UUID> {
             @Param("fromSize") Long fromSize,
             @Param("toSize") Long toSize
     );
-
+@Query("""
+SELECT COUNT(i),COALESCE(SUM(i.size),0)
+FROM Items i
+where i.owner = :user
+and i.type = com.example.mini_drive_storage.enums.ItemType.FILE
+and i.deletedAt is null
+""")
+List<Object[]> getUsageStats(Users user);
 }
