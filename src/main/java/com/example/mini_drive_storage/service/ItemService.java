@@ -1,9 +1,6 @@
 package com.example.mini_drive_storage.service;
 
-import com.example.mini_drive_storage.dto.CreateFolderRequest;
-import com.example.mini_drive_storage.dto.ItemResponseDto;
-import com.example.mini_drive_storage.dto.ShareFileRequest;
-import com.example.mini_drive_storage.dto.SharedItemResponseDto;
+import com.example.mini_drive_storage.dto.*;
 import com.example.mini_drive_storage.entity.FilePermission;
 import com.example.mini_drive_storage.entity.FolderDownloadStatus;
 import com.example.mini_drive_storage.entity.Items;
@@ -387,5 +384,31 @@ private void shareFileRecursive(Items item, Users shareUser, PermissionLevel per
                 .stream()
                 .map(SharedItemResponseDto::from)
                 .toList();
+    }
+
+    public List<ItemResponseDto> search(FileSearchRequest fileSearchRequest) {
+        Users currentUser = currentUserUtils.getCurrentUser();
+
+        ItemType itemType = null;
+        String mimeType = null;
+
+        if (fileSearchRequest.getType() != null) {
+            try {
+                itemType = ItemType.valueOf(fileSearchRequest.getType());
+
+            } catch (IllegalArgumentException e) {
+                mimeType = fileSearchRequest.getType();
+            }
+        }
+        List<Items> items = itemRepo.search(
+                currentUser.getId(),
+                fileSearchRequest.getQ(),
+                mimeType,
+                String.valueOf(itemType),
+                fileSearchRequest.getParentId(),
+                fileSearchRequest.getFromSize(),
+                fileSearchRequest.getToSize()
+        );
+        return items.stream().map(ItemResponseDto::from).toList();
     }
 }

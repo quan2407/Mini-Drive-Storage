@@ -82,12 +82,28 @@ public class ItemController {
     }
 
     @PostMapping("/files/{id}/share")
-    public ResponseEntity<?> sharedFile(@PathVariable UUID id,@Valid @RequestBody ShareFileRequest  shareFileRequest) {
-return itemService.shareItem(id,shareFileRequest);
+    public ResponseEntity<?> sharedFile(@PathVariable UUID id, @Valid @RequestBody ShareFileRequest shareFileRequest) {
+        return itemService.shareItem(id, shareFileRequest);
     }
 
     @GetMapping("/files/shared-with-me")
     public ResponseEntity<List<SharedItemResponseDto>> sharedWithMe() {
         return ResponseEntity.ok(itemService.getSharedItemForCurrentUser());
+    }
+
+    @GetMapping("/files")
+    public ResponseEntity<?> searchFile(@RequestParam(required = false) String q,
+                                        @RequestParam(required = false) String type,
+                                        @RequestParam(required = false) UUID parentId,
+                                        @RequestParam(required = false) Long fromSize,
+                                        @RequestParam(required = false) Long toSize) {
+        FileSearchRequest fileSearchRequest = FileSearchRequest.builder()
+                .q(q)
+                .type(type)
+                .parentId(parentId)
+                .fromSize(fromSize)
+                .toSize(toSize)
+                .build();
+        return ResponseEntity.ok(itemService.search(fileSearchRequest));
     }
 }
