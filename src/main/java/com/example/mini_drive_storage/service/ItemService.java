@@ -14,6 +14,7 @@ import com.example.mini_drive_storage.repo.ItemRepo;
 import com.example.mini_drive_storage.repo.UserRepo;
 import com.example.mini_drive_storage.utils.CurrentUserUtils;
 import jakarta.annotation.PostConstruct;
+import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
@@ -31,6 +32,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.Permission;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
@@ -60,6 +62,9 @@ public class ItemService {
     private static final String UPLOAD_ROOT = "storage";
 
     private void checkEditPermission(Items item, Users user) {
+        if (item.getOwner().equals(user)) {
+            return;
+        }
         FilePermission permission = (FilePermission) filePermissionRepo
                 .findByItemAndSharedToUser(item, user)
                 .orElseThrow(() ->
@@ -422,5 +427,13 @@ private void shareFileRecursive(Items item, Users shareUser, PermissionLevel per
                 .totalFiles(totalFiles)
                 .totalSize(totalSize)
                 .build();
+    }
+@Transactional
+    public void softDelete(UUID id) {
+        Users currentUser = currentUserUtils.getCurrentUser();
+        Items item = itemRepo.findById(id).orElseThrow(() -> new InvalidRequestException("Item not found"));
+        checkEditPermission(item,currentUser);
+        item.setDeletedAt(Instant.now());
+        itemRepo.save(item);
     }
 }

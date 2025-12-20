@@ -111,4 +111,11 @@ public class ItemController {
     public ResponseEntity<UsageAnalyticsResponse> analyticsUsage() {
 return ResponseEntity.ok(itemService.getUsage());
     }
+
+    @DeleteMapping("/files/{id}")
+    public ResponseEntity<?> deleteFile(@PathVariable UUID id) {
+        System.out.println("I am here");
+        itemService.softDelete(id);
+        return ResponseEntity.ok().build();
+    }
 }

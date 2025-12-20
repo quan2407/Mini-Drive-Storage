@@ -16,4 +16,6 @@ public interface FilePermissionRepo extends JpaRepository<FilePermission, UUID> 
     Optional<FilePermission> findByItemAndSharedToUser(Items item, Users user);
 
     List<FilePermission> findBySharedToUser(Users user);
+
+    void deleteByItem(Items item);
 }
