@@ -315,37 +315,42 @@ public class ItemService {
 
     public ResponseEntity<?> shareItem(UUID id, @Valid ShareFileRequest shareFileRequest) {
         Users currentUser = currentUserUtils.getCurrentUser();
+
         Items item = itemRepo.findById(id)
                 .orElseThrow(() -> new NotFoundException("Item not found"));
-        FilePermission permission = filePermissionRepo
-                .findByItemAndSharedToUser(item, currentUser)
-                .orElseThrow(() ->
-                        new InvalidRequestException("You don't have permission to share this item"));
 
-        if (permission.getPermissionLevel() != PermissionLevel.EDIT) {
-            throw new InvalidRequestException("You don't have permission to share this item");
-        }
-        String emailToShare = shareFileRequest.getEmail();
-        Users shareUser = userRepo.findByEmail(emailToShare).orElseThrow(() -> new InvalidRequestException("Email not found"));
-        if (item.getType().equals(ItemType.FILE)) {
-            upsertPermission(item,shareUser,shareFileRequest.getPermission(),false);
-            emailService.sendShareNotification(
-                    shareUser.getEmail(),
-                    item.getName(),
-                    shareFileRequest.getPermission()
-            );
+        boolean isOwner = item.getOwner().getId().equals(currentUser.getId());
 
-        } else if (item.getType().equals(ItemType.FOLDER)) {
-            upsertPermission(item,shareUser,shareFileRequest.getPermission(),false);
-            emailService.sendShareNotification(
-                    shareUser.getEmail(),
-                    item.getName(),
-                    shareFileRequest.getPermission()
-            );
-            shareFileRecursive(item, shareUser, shareFileRequest.getPermission());
+        if (!isOwner) {
+            FilePermission permission = filePermissionRepo
+                    .findByItemAndSharedToUser(item, currentUser)
+                    .orElseThrow(() ->
+                            new InvalidRequestException("You don't have permission to share this item"));
+
+            if (permission.getPermissionLevel() != PermissionLevel.EDIT) {
+                throw new InvalidRequestException("You don't have permission to share this item");
+            }
         }
+
+        Users shareUser = userRepo.findByEmail(shareFileRequest.getEmail())
+                .orElseThrow(() -> new InvalidRequestException("Email not found"));
+
+        PermissionLevel permission = shareFileRequest.getPermission();
+
+        upsertPermission(item, shareUser, permission, false);
+        emailService.sendShareNotification(
+                shareUser.getEmail(),
+                item.getName(),
+                permission
+        );
+
+        if (item.getType() == ItemType.FOLDER) {
+            shareFileRecursive(item, shareUser, permission);
+        }
+
         return ResponseEntity.ok("Item shared successfully");
     }
+
 
     private void upsertPermission(
             Items item,
