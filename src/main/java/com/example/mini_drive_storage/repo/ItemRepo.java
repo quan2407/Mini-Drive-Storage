@@ -66,4 +66,6 @@ public interface ItemRepo extends JpaRepository<Items, UUID> {
             and (i.parent is null or i.parent.deletedAt is null)
             """)
     List<Items> findExpiredRootItems(Instant expiredTime);
+
+    boolean existsByIdAndOwnerId(UUID id, UUID id1);
 }

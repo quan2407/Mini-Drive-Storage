@@ -3,6 +3,7 @@ package com.example.mini_drive_storage.repo;
 import com.example.mini_drive_storage.entity.FilePermission;
 import com.example.mini_drive_storage.entity.Items;
 import com.example.mini_drive_storage.entity.Users;
+import com.example.mini_drive_storage.enums.PermissionLevel;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Arrays;
@@ -11,6 +12,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface FilePermissionRepo extends JpaRepository<FilePermission, UUID> {
+    boolean existsByItemIdAndSharedToUserIdAndPermissionLevel(
+            UUID itemId,
+            UUID sharedToUserId,
+            PermissionLevel permissionLevel
+    );
+
     List<FilePermission> findByItem(Items parent);
 
     Optional<FilePermission> findByItemAndSharedToUser(Items item, Users user);
@@ -18,4 +25,6 @@ public interface FilePermissionRepo extends JpaRepository<FilePermission, UUID> 
     List<FilePermission> findBySharedToUser(Users user);
 
     void deleteByItem(Items item);
+
+    boolean existsByItemIdAndSharedToUserId(UUID itemId, UUID sharedToUserId);
 }

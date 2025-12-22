@@ -4,11 +4,13 @@ import com.example.mini_drive_storage.dto.*;
 import com.example.mini_drive_storage.entity.FolderDownloadStatus;
 import com.example.mini_drive_storage.entity.Items;
 import com.example.mini_drive_storage.service.ItemService;
+import com.example.mini_drive_storage.service.PermissionService;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
@@ -44,12 +46,14 @@ public class ItemController {
         return ResponseEntity.ok(itemService.createFolder(createFolderRequest));
     }
 
+    @PreAuthorize("@permissionService.canViewItem(#id)")
     @GetMapping("/{id}/download")
     // ? represent can accept any body type, because download api can return many type like Resource,JSON or no body
     public ResponseEntity<?> downloadFile(@PathVariable UUID id) {
         return itemService.downloadFile(id);
     }
 
+    @PreAuthorize("@permissionService.canViewItem(#id)")
     @PostMapping("/{id}/download")
     public ResponseEntity<DownloadFolderResponse> downloadFolder(@PathVariable UUID id) {
         UUID requestId = itemService.triggerAsyncZip(id);
@@ -81,6 +85,7 @@ public class ItemController {
         return itemService.downloadFolderZip(requestId);
     }
 
+    @PreAuthorize("@permissionService.canEditItem(#id)")
     @PostMapping("/files/{id}/share")
     public ResponseEntity<?> sharedFile(@PathVariable UUID id, @Valid @RequestBody ShareFileRequest shareFileRequest) {
         return itemService.shareItem(id, shareFileRequest);
@@ -112,6 +117,7 @@ public class ItemController {
 return ResponseEntity.ok(itemService.getUsage());
     }
 
+    @PreAuthorize("@permissionService.canEditItem(#id)")
     @DeleteMapping("/files/{id}")
     public ResponseEntity<?> deleteFile(@PathVariable UUID id) {
         System.out.println("I am here");
