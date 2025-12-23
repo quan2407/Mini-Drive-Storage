@@ -192,19 +192,33 @@ public class ItemService {
     public ResponseEntity<?> downloadFile(UUID id) {
         Items item = itemRepo.findById(id)
                 .orElseThrow(() -> new NotFoundException("Item not found"));
+
         if (item.getType() != ItemType.FILE) {
             throw new InvalidRequestException("Item is not file");
         }
+
         Users currentUser = currentUserUtils.getCurrentUser();
+
         // if this file is shared to this user, user can download this file;
-        FilePermission permission = (FilePermission) filePermissionRepo.findByItemAndSharedToUser(item, currentUser)
-                .orElseThrow(() -> new InvalidRequestException("No permission to download"));
+        // owner can download file
+        if (!item.getOwner().getId().equals(currentUser.getId())) {
+
+            FilePermission permission = filePermissionRepo
+                    .findByItemAndSharedToUser(item, currentUser)
+                    .orElseThrow(() -> new InvalidRequestException("No permission to download"));
+
+            if (permission.getPermissionLevel() != PermissionLevel.VIEW
+                    && permission.getPermissionLevel() != PermissionLevel.EDIT) {
+                throw new InvalidRequestException("No permission to download");
+            }
+        }
 
         // check if this file is exist on this storage app
         Path path = Paths.get(item.getPath());
         if (Files.notExists(path)) {
             throw new NotFoundException("File not found");
         }
+
         // input stream use to read binary file: pdf,doc,zip,...
         InputStreamResource resource;
         try {
@@ -212,12 +226,17 @@ public class ItemService {
         } catch (IOException e) {
             throw new RuntimeException("Could not open file", e);
         }
-        String contentType = item.getMimeType() != null ? item.getMimeType() : "application/octet-stream";
+
+        String contentType = item.getMimeType() != null
+                ? item.getMimeType()
+                : "application/octet-stream";
+
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
-                //Content-Disposition tell the user how to resolve data
-                //attachment mean force to download
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + item.getName() + "\"")
+                // Content-Disposition tell the user how to resolve data
+                // attachment mean force to download
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + item.getName() + "\"")
                 .body(resource);
     }
 

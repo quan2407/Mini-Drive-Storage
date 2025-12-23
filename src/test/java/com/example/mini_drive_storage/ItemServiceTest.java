@@ -3,12 +3,14 @@ package com.example.mini_drive_storage;
 import com.example.mini_drive_storage.dto.CreateFolderRequest;
 import com.example.mini_drive_storage.dto.ItemResponseDto;
 import com.example.mini_drive_storage.dto.ShareFileRequest;
+import com.example.mini_drive_storage.dto.SharedItemResponseDto;
 import com.example.mini_drive_storage.entity.FilePermission;
 import com.example.mini_drive_storage.entity.Items;
 import com.example.mini_drive_storage.entity.Users;
 import com.example.mini_drive_storage.enums.ItemType;
 import com.example.mini_drive_storage.enums.PermissionLevel;
 import com.example.mini_drive_storage.exception.InvalidRequestException;
+import com.example.mini_drive_storage.exception.NotFoundException;
 import com.example.mini_drive_storage.repo.FilePermissionRepo;
 import com.example.mini_drive_storage.repo.ItemRepo;
 import com.example.mini_drive_storage.repo.UserRepo;
@@ -21,9 +23,16 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -560,6 +569,200 @@ public class ItemServiceTest {
 
         assertNotNull(item.getDeletedAt());
         verify(itemRepo).save(item);
+    }
+
+    @Test
+    void downloadFile_itemNotFound_shouldThrow() {
+        UUID itemId = UUID.randomUUID();
+
+        when(itemRepo.findById(itemId))
+                .thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class, () ->
+                itemService.downloadFile(itemId)
+        );
+    }
+    private Path createTempFile() throws IOException {
+        Path tempFile = Files.createTempFile("test-", ".txt");
+        Files.writeString(tempFile, "hello");
+        return tempFile;
+    }
+
+
+    @Test
+    void downloadFile_owner_success() throws Exception {
+        UUID itemId = UUID.randomUUID();
+
+        Users owner = new Users();
+        owner.setId(UUID.randomUUID());
+
+        Path filePath = createTempFile();
+
+        Items item = Items.builder()
+                .id(itemId)
+                .type(ItemType.FILE)
+                .owner(owner)
+                .path(filePath.toString())
+                .name("test.txt")
+                .mimeType("text/plain")
+                .build();
+
+        when(itemRepo.findById(itemId)).thenReturn(Optional.of(item));
+        when(currentUserUtils.getCurrentUser()).thenReturn(owner);
+
+        ResponseEntity<?> response = itemService.downloadFile(itemId);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("text/plain", response.getHeaders().getContentType().toString());
+        assertTrue(response.getHeaders()
+                .getFirst(HttpHeaders.CONTENT_DISPOSITION)
+                .contains("test.txt"));
+
+        assertTrue(response.getBody() instanceof InputStreamResource);
+    }
+
+
+
+    @Test
+    void downloadFile_nonOwner_noPermission_shouldThrow() {
+        Users owner = Users.builder().id(UUID.randomUUID()).build();
+        Users user  = Users.builder().id(UUID.randomUUID()).build();
+
+        Items file = Items.builder()
+                .id(UUID.randomUUID())
+                .type(ItemType.FILE)
+                .owner(owner)
+                .build();
+
+        when(itemRepo.findById(file.getId()))
+                .thenReturn(Optional.of(file));
+        when(currentUserUtils.getCurrentUser())
+                .thenReturn(user);
+        when(filePermissionRepo.findByItemAndSharedToUser(file, user))
+                .thenReturn(Optional.empty());
+
+        assertThrows(InvalidRequestException.class, () ->
+                itemService.downloadFile(file.getId())
+        );
+    }
+    @Test
+    void downloadFile_sharedViewPermission_success() throws Exception {
+        UUID itemId = UUID.randomUUID();
+
+        Users owner = new Users();
+        owner.setId(UUID.randomUUID());
+
+        Users sharedUser = new Users();
+        sharedUser.setId(UUID.randomUUID());
+
+        Path filePath = createTempFile();
+
+        Items item = Items.builder()
+                .id(itemId)
+                .type(ItemType.FILE)
+                .owner(owner)
+                .path(filePath.toString())
+                .name("view.txt")
+                .mimeType("text/plain")
+                .build();
+
+        FilePermission permission = FilePermission.builder()
+                .permissionLevel(PermissionLevel.VIEW)
+                .build();
+
+        when(itemRepo.findById(itemId)).thenReturn(Optional.of(item));
+        when(currentUserUtils.getCurrentUser()).thenReturn(sharedUser);
+        when(filePermissionRepo.findByItemAndSharedToUser(item, sharedUser))
+                .thenReturn(Optional.of(permission));
+
+        ResponseEntity<?> response = itemService.downloadFile(itemId);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+    }
+
+    @Test
+    void downloadFile_noPermission_shouldThrow() {
+        UUID itemId = UUID.randomUUID();
+
+        Users owner = new Users();
+        owner.setId(UUID.randomUUID());
+
+        Users currentUser = new Users();
+        currentUser.setId(UUID.randomUUID());
+
+        Items item = Items.builder()
+                .id(itemId)
+                .type(ItemType.FILE)
+                .owner(owner)
+                .path("dummy")
+                .build();
+
+        when(itemRepo.findById(itemId)).thenReturn(Optional.of(item));
+        when(currentUserUtils.getCurrentUser()).thenReturn(currentUser);
+        when(filePermissionRepo.findByItemAndSharedToUser(item, currentUser))
+                .thenReturn(Optional.empty());
+
+        assertThrows(InvalidRequestException.class,
+                () -> itemService.downloadFile(itemId));
+    }
+
+
+    @Test
+    void getSharedItemForCurrentUser_success() {
+        Users user = Users.builder()
+                .id(UUID.randomUUID())
+                .email("user@gmail.com")
+                .build();
+
+        Items item1 = Items.builder()
+                .id(UUID.randomUUID())
+                .name("file1")
+                .type(ItemType.FILE)
+                .build();
+
+        Items item2 = Items.builder()
+                .id(UUID.randomUUID())
+                .name("folder1")
+                .type(ItemType.FOLDER)
+                .build();
+
+        FilePermission p1 = FilePermission.builder()
+                .item(item1)
+                .sharedToUser(user)
+                .build();
+
+        FilePermission p2 = FilePermission.builder()
+                .item(item2)
+                .sharedToUser(user)
+                .build();
+
+        when(currentUserUtils.getCurrentUser())
+                .thenReturn(user);
+        when(filePermissionRepo.findBySharedToUser(user))
+                .thenReturn(List.of(p1, p2));
+
+        List<SharedItemResponseDto> result =
+                itemService.getSharedItemForCurrentUser();
+
+        assertEquals(2, result.size());
+    }
+
+    @Test
+    void getSharedItemForCurrentUser_emptyList() {
+        Users user = Users.builder()
+                .id(UUID.randomUUID())
+                .build();
+
+        when(currentUserUtils.getCurrentUser())
+                .thenReturn(user);
+        when(filePermissionRepo.findBySharedToUser(user))
+                .thenReturn(List.of());
+
+        List<SharedItemResponseDto> result =
+                itemService.getSharedItemForCurrentUser();
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
     }
 
 }
