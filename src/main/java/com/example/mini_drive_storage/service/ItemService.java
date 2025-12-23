@@ -429,15 +429,19 @@ private void shareFileRecursive(Items item, Users shareUser, PermissionLevel per
                 mimeType = fileSearchRequest.getType();
             }
         }
+        String itemTypeStr = itemType != null ? itemType.name() : null;
+
         List<Items> items = itemRepo.search(
                 currentUser.getId(),
                 fileSearchRequest.getQ(),
                 mimeType,
-                String.valueOf(itemType),
+                itemTypeStr,
                 fileSearchRequest.getParentId(),
                 fileSearchRequest.getFromSize(),
                 fileSearchRequest.getToSize()
         );
+
+        System.out.println("So luong item tim duoc " + items.size());
         return items.stream().map(ItemResponseDto::from).toList();
     }
 
